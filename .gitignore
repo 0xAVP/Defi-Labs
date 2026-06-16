@@ -1,0 +1,7 @@
+.idea/
+node_modules/
+
+.repomixignore
+repomix.config.json
+repomix-output.md
+plan.md
