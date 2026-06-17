@@ -1,0 +1,4 @@
+@openzeppelin/contracts/=contracts/lib/openzeppelin-contracts/contracts/
+ds-test/=contracts/lib/forge-std/lib/ds-test/src/
+forge-std/=contracts/lib/forge-std/src/
+diamond-3-hardhat/=contracts/lib/diamond-3-hardhat/
