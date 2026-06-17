@@ -1,0 +1,6 @@
+[submodule "contracts/lib/openzeppelin-contracts"]
+	path = contracts/lib/openzeppelin-contracts
+	url = https://github.com/openzeppelin/openzeppelin-contracts
+[submodule "contracts/lib/diamond-3-hardhat"]
+	path = contracts/lib/diamond-3-hardhat
+	url = https://github.com/mudgen/diamond-3-hardhat
