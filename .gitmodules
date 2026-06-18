@@ -4,9 +4,6 @@
 [submodule "contracts/lib/diamond-3-hardhat"]
 	path = contracts/lib/diamond-3-hardhat
 	url = https://github.com/mudgen/diamond-3-hardhat
-[submodule "contracts/lib/chainlink-ccip"]
-	path = contracts/lib/chainlink-ccip
-	url = https://github.com/smartcontractkit/chainlink-ccip
-[submodule "contracts/lib/chainlink-local"]
-	path = contracts/lib/chainlink-local
-	url = https://github.com/smartcontractkit/chainlink-local
+[submodule "contracts/lib/forge-std"]
+	path = contracts/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
