@@ -1,125 +1,120 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity 0.8.30;
 
 /**
- * @title DeFi Labs App Storage Library
+ * @title LibAppStorage
  * @author 0xAvp
  * @notice Shared storage layout for the EIP-2535 Diamond proxy.
  * @dev All facets must import this library and access state via LibAppStorage.layout()
- *      to ensure synchronized storage slots and prevent collisions.
+ *      to ensure synchronized storage slots and prevent collisions (EIP-7201 standard).
  */
 library LibAppStorage {
-    // Unique storage slot position for AppStorage (EIP-7201 standard)
+
+    /// @dev Unique storage slot position for AppStorage (EIP-7201 standard).
+    ///      Computed as keccak256("defi.labs.storage.appstorage").
     bytes32 internal constant APP_STORAGE_POSITION = keccak256("defi.labs.storage.appstorage");
 
     /**
-     * @notice Struct representing a single cross-chain gas stream/swap
-     * @dev Variable packing: uint64 (8 bytes) + uint64 (8 bytes) + address (20 bytes) = 36 bytes.
-     *      Solidity will pack this into two 32-byte slots.
+     * @notice Execution status of a cross-chain swap on the destination chain.
      */
-    struct GasSwap {
-        address swapper;        // Address of the user who initiated the swap
-        uint64 sourceChainId;   // CCIP source chain selector
-        uint64 timestamp;       // Block timestamp of the swap
-        uint256 amountIn;       // Amount of native gas sent on the source chain
-        uint256 amountOut;      // Expected amount of native gas to receive on destination
+    enum SwapStatus {
+        None,         // 0: The swap has not been processed yet.
+        Processed,    // 1: Payout successful, native gas tokens sent to the user.
+        Cancelled     // 2: Cancelled by the relayer, blocking future payouts forever.
     }
 
     /**
-     * @notice Struct representing a time-locked governance token stake
+     * @notice Represents the packed state of a single cross-chain swap.
+     * @dev Variable packing: SwapStatus (1 byte) + bool (1 byte) = 2 bytes.
+     *      Solidity will pack this struct into a single 32-byte slot within the mapping,
+     *      highly optimizing gas costs for storage reads and writes.
      */
-    struct LockedBalance {
-        uint128 amount;         // Amount of DFL tokens locked
-        uint128 unlockTime;     // Timestamp when tokens can be unlocked
+    struct SwapState {
+        SwapStatus status;       // Execution status on the destination chain (None/Processed/Cancelled).
+        bool refunded;           // Flag indicating whether the DFL tokens were refunded on the source chain.
     }
 
     /**
-     * @notice Main storage structure containing the state of all DeFi modules
+     * @notice Represents the configuration parameters of a specific liquidity pool linked to a destination network.
+     */
+    struct PoolConfig {
+        address peerBridge;      // Peer bridge contract (Diamond proxy) address on the target network.
+        uint256 baseDifficulty;  // Base difficulty multiplier for the pool (e.g., 100 = 1.0x).
+        uint256 targetBalance;   // Desired native asset reserve balance for the pool (in wei).
+    }
+
+    /**
+     * @notice Main storage structure containing the state of all DeFi modules.
      * @dev Explicit slot layout is documented below for future upgrade safety.
-     *      Each slot is exactly 32 bytes.
+     *      Each storage slot is exactly 32 bytes wide.
      */
     struct AppStorage {
         // ====================================================================
         // SLOT 0 (Occupied: 22 bytes, Free: 10 bytes)
         // ====================================================================
-        // [0..20] owner of the Diamond proxy
+        /// @dev Address of the Diamond proxy owner/administrator.
         address owner;
-        // [20..21] global emergency pause flag
+        /// @dev Global emergency pause flag. If true, all user-facing swap operations are paused.
         bool paused;
-        // [21..22] standard reentrancy guard status (1 = Active, 2 = Guarded)
+        /// @dev Reentrancy guard status (1 = Active/Unlocked, 2 = Guarded/Locked).
         uint8 reentrancyStatus;
-        // [22..32] UNUSED (10 bytes remaining for future small uints/bools)
 
         // ====================================================================
         // SLOT 1 (Occupied: 20 bytes, Free: 12 bytes)
         // ====================================================================
-        // [0..20] DeFi Labs Governance/Utility Token address
+        /// @dev Address of the core DFL utility/governance ERC20 token contract.
         address dflToken;
-        // [20..32] UNUSED (12 bytes remaining)
 
         // ====================================================================
-        // SLOT 2 (Occupied: 20 bytes, Free: 12 bytes)
+        // SLOT 2 (Occupied: 24 bytes, Free: 8 bytes)
         // ====================================================================
-        // [0..20] Chainlink CCIP Router address
-        address ccipRouter;
-        // [20..32] UNUSED (12 bytes remaining)
+        // [0..20] Authorized Relayer/Worker hot wallet address
+        address relayer;
+        // [20..24] Customizable gas overhead to account for execution steps outside gasleft()
+        uint32 gasOverhead;
 
         // ====================================================================
-        // SLOT 3 (Occupied: 20 bytes, Free: 12 bytes)
+        // SLOT 3 (Occupied: 32 bytes)
         // ====================================================================
-        // [0..20] Chainlink Price Feed Aggregator address (e.g., ETH/USD)
-        address priceOracle;
-        // [20..32] UNUSED (12 bytes remaining)
+        /// @dev Base swap fee multiplier in basis points (e.g., 50 = 0.50% fee based on 10,000 bps).
+        uint256 swapFee;
 
         // ====================================================================
         // SLOT 4 (Occupied: 32 bytes)
         // ====================================================================
-        // [0..32] Base withdrawal penalty / spread multiplier
-        // (e.g., 500 = 5.00% fee based on 10,000 basis points)
-        uint256 withdrawFee;
+        /// @dev Accumulated protocol fees in native token (gas/fee pool).
+        ///      Used to reimburse the relayer's gas and acts as withdrawable protocol profit.
+        uint256 feePool;
 
         // ====================================================================
         // SLOT 5 (Occupied: 32 bytes - Mapping Root Placeholder)
         // ====================================================================
-        // CCIP Destination Chain Selector => Peer Bridge contract address
-        mapping(uint64 => address) peerBridges;
+        /// @dev Maps a unique Swap ID (keccak256 hash) to its execution and refund state.
+        mapping(bytes32 => SwapState) swapStates;
 
         // ====================================================================
         // SLOT 6 (Occupied: 32 bytes - Mapping Root Placeholder)
         // ====================================================================
-        // Track completed or pending swaps to prevent double-execution
-        mapping(bytes32 => bool) processedMessageIds;
+        /// @dev Maps a user's address to their EIP-712 permit nonce (used for gasless DFL approvals).
+        mapping(address => uint256) nonces;
 
         // ====================================================================
         // SLOT 7 (Occupied: 32 bytes - Mapping Root Placeholder)
         // ====================================================================
-        // User address => Lock configuration (ve-Tokenomics)
-        mapping(address => LockedBalance) lockedBalances;
+        /// @dev Maps a user's address to their transaction counter, ensuring mathematically unique swap IDs.
+        mapping(address => uint256) swapNonces;
 
         // ====================================================================
         // SLOT 8 (Occupied: 32 bytes - Mapping Root Placeholder)
         // ====================================================================
-        // User address => EIP-712 permit nonce for gasless approvals
-        mapping(address => uint256) nonces;
-
-        // ====================================================================
-        // SLOT 9 (Occupied: 32 bytes - Mapping Root Placeholder)
-        // ====================================================================
-        // CCIP Destination Chain Selector (or block.chainid) => Base Difficulty
-        // (e.g., 100 = 1.0x baseline difficulty multiplier)
-        mapping(uint64 => uint256) chainDifficulties;
-
-        // ====================================================================
-        // SLOT 10 (Occupied: 32 bytes - Mapping Root Placeholder)
-        // ====================================================================
-        // CCIP Destination Chain Selector (or block.chainid) => Target Balance (in wei)
-        mapping(uint64 => uint256) targetBalances;
+        /// @dev Maps a target network Chain ID (CCIP selector or block.chainid) to its PoolConfig parameters.
+        mapping(uint64 => PoolConfig) poolConfigs;
     }
 
     /**
-     * @notice Returns a pointer to the shared storage layout in the Diamond proxy
-     * @dev Uses inline assembly to point directly to the predefined storage slot position
-     * @return ds Pointer to the AppStorage struct in state
+     * @notice Returns a pointer to the shared storage layout in the Diamond proxy.
+     * @dev Uses inline assembly to point directly to the predefined EIP-7201 storage slot.
+     * @return ds Pointer to the AppStorage struct in contract storage.
      */
     function layout() internal pure returns (AppStorage storage ds) {
         bytes32 position = APP_STORAGE_POSITION;

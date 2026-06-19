@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity 0.8.30;
 
 import "../libraries/LibAppStorage.sol";
 import { LibDiamond } from "diamond-3-hardhat/contracts/libraries/LibDiamond.sol";
 
     error BaseFacet__SystemPaused();
     error BaseFacet__ReentrancyGuardTriggered();
-    error BaseFacet__Unauthorized();
+    error BaseFacet__UnauthorizedOwner();
+    error BaseFacet__UnauthorizedRelayer();
 
 /**
  * @title Base Facet Contract
@@ -17,7 +18,7 @@ import { LibDiamond } from "diamond-3-hardhat/contracts/libraries/LibDiamond.sol
 abstract contract BaseFacet {
 
     /**
-     * @notice Prevents reentrancy attacks across all Diamond facets
+     * @notice Prevents reentrancy attacks across all Diamond facets.
      */
     modifier nonReentrant() {
         LibAppStorage.AppStorage storage s = LibAppStorage.layout();
@@ -28,7 +29,7 @@ abstract contract BaseFacet {
     }
 
     /**
-     * @notice Restricts execution to the Diamond owner using LibDiamond's native ownership check
+     * @notice Restricts execution to the Diamond owner using LibDiamond's native ownership check.
      */
     modifier onlyOwner() {
         // We use the audited reference library from Nick Mudge to enforce ownership
@@ -37,7 +38,17 @@ abstract contract BaseFacet {
     }
 
     /**
-     * @notice Reverts if the system is globally paused
+     * @notice Restricts execution to the authorized relayer (hot wallet) of the off-chain worker.
+     */
+    modifier onlyRelayer() {
+        if (msg.sender != LibAppStorage.layout().relayer) {
+            revert BaseFacet__UnauthorizedRelayer();
+        }
+        _;
+    }
+
+    /**
+     * @notice Reverts if the system is globally paused.
      */
     modifier whenNotPaused() {
         LibAppStorage.AppStorage storage s = LibAppStorage.layout();
